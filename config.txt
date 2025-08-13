@@ -1,0 +1,9 @@
+# Format: channel_name=true/false
+# true = monitor and play TTS notification
+# false = monitor only
+
+# Examples:
+# xqc=true
+# shroud=false
+# pokimane=true
+# Add your streamers below:

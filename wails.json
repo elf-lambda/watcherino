@@ -1,0 +1,13 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "go-wails-01",
+  "outputfilename": "go-wails-01",
+  "assetdir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "./frontend/src/wailsjs",
+  "assetsToEmbed": [
+    "index.html",
+    "src/**/*"
+  ]
+}
