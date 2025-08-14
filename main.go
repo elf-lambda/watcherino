@@ -4,6 +4,7 @@ package main
 import (
 	"embed"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -34,7 +35,8 @@ func main() {
 	}
 	defer f.Close()
 
-	log.SetOutput(f)
+	mw := io.MultiWriter(os.Stdout, f)
+	log.SetOutput(mw)
 	go func() {
 		if err := Fetch7TVGlobalEmotes(); err != nil {
 			log.Fatalf("failed to fetch 7TV global emotes: %v", err)

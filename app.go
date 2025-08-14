@@ -704,27 +704,72 @@ func (a *App) GetViewerCount(channel string) (int, error) {
 
 func (a *App) checkStreamStatus(channel string) bool {
 	channel = strings.TrimPrefix(channel, "#")
+	url := "https://gql.twitch.tv/gql"
+	query := fmt.Sprintf(`{"query":"query { user(login:\"%s\") { stream { id } } }"}`, channel)
 
-	timestamp := time.Now().Unix()
-	url := fmt.Sprintf("https://static-cdn.jtvnw.net/previews-ttv/live_user_%s-320x180.jpg?timestamp=%d", channel, timestamp)
+	req, err := http.NewRequest("POST", url, strings.NewReader(query))
+	if err != nil {
+		log.Printf("Error creating request for %s: %v", channel, err)
+		return false
+	}
+
+	req.Header.Set("Client-ID", "kimne78kx3ncx6brgo4mv6wki5h1ko")
+	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
 
-	resp, err := client.Get(url)
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("Error checking stream status for %s: %v", channel, err)
 		return false
 	}
 	defer resp.Body.Close()
 
-	finalURL := resp.Request.URL.String()
-	isLive := !strings.Contains(finalURL, "404_preview")
+	var result struct {
+		Data struct {
+			User struct {
+				Stream *struct {
+					ID string `json:"id"`
+				} `json:"stream"`
+			} `json:"user"`
+		} `json:"data"`
+	}
 
-	log.Printf("Checking %s: %s -> Live: %t", channel, finalURL, isLive)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("Error decoding response for %s: %v", channel, err)
+		return false
+	}
+
+	isLive := result.Data.User.Stream != nil
+	log.Printf("Checking %s via GraphQL -> Live: %t", channel, isLive)
 	return isLive
 }
+
+// func (a *App) checkStreamStatus(channel string) bool {
+// 	channel = strings.TrimPrefix(channel, "#")
+
+// 	timestamp := time.Now().Unix()
+// 	url := fmt.Sprintf("https://static-cdn.jtvnw.net/previews-ttv/live_user_%s-320x180.jpg?timestamp=%d", channel, timestamp)
+
+// 	client := &http.Client{
+// 		Timeout: 10 * time.Second,
+// 	}
+
+// 	resp, err := client.Get(url)
+// 	if err != nil {
+// 		log.Printf("Error checking stream status for %s: %v", channel, err)
+// 		return false
+// 	}
+// 	defer resp.Body.Close()
+
+// 	finalURL := resp.Request.URL.String()
+// 	isLive := !strings.Contains(finalURL, "404_preview")
+
+// 	log.Printf("Checking %s: %s -> Live: %t", channel, finalURL, isLive)
+// 	return isLive
+// }
 
 func (a *App) startLiveStatusMonitoring() {
 	log.Printf("Starting live status monitoring for %d channels", len(a.channels))
