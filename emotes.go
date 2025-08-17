@@ -460,12 +460,26 @@ func Fetch7TVEmotes(twitchUserID, channelName string) error {
 		return fmt.Errorf("failed to decode 7TV JSON: %w", err)
 	}
 
+	// log.Printf("channel 7tv emotes: %+v\n", apiResp)
+
 	channelDir := filepath.Join("channels", strings.TrimPrefix(channelName, "#"))
 	emoteDir := filepath.Join(channelDir, "emotes_7tv")
 
 	if err := os.MkdirAll(emoteDir, 0755); err != nil {
 		return fmt.Errorf("failed to create emotes_7tv directory: %w", err)
 	}
+
+	normalizedChannelName := strings.TrimPrefix(channelName, "#")
+	channelsMutex.Lock()
+
+	// Initialize channel if it doesn't exist
+	if _, ok := channels[normalizedChannelName]; !ok {
+		channels[normalizedChannelName] = Channel{
+			Name:   normalizedChannelName,
+			Emotes: make(map[string]EmoteInfo),
+		}
+	}
+	channelsMutex.Unlock()
 
 	for _, emote := range apiResp.EmoteSet.Emotes {
 		var imageURL, sourceFormat string
@@ -519,14 +533,15 @@ func Fetch7TVEmotes(twitchUserID, channelName string) error {
 
 		log.Printf("Downloaded 7TV emote: %s -> %s\n", emote.Name, outputPath)
 
-		channelsMutex.RLock()
-		channels[strings.TrimPrefix(channelName, "#")].Emotes[emote.Name] = EmoteInfo{
+		channelsMutex.Lock()
+		channels[normalizedChannelName].Emotes[emote.Name] = EmoteInfo{
 			ID:       emote.ID,
 			Name:     emote.Name,
 			ImageURL: imageURL,
 			FilePath: outputPath,
+			URL:      imageURL,
 		}
-		channelsMutex.RUnlock()
+		channelsMutex.Unlock()
 	}
 
 	return nil
