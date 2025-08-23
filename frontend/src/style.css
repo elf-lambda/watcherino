@@ -520,3 +520,15 @@ body {
     color: #b5004b;
     font-weight: bold;
 }
+
+/* Red border for highlighted messages */
+.message-highlighted {
+    border: 1px solid #ff444498 !important;
+    border-radius: 2px;
+}
+
+/* Red border for highlighted channels */
+.channel-highlighted {
+    border: 1px solid #ff444498 !important;
+    border-radius: 4px;
+}

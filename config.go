@@ -20,8 +20,8 @@ func getChannelsFromConfig(filePath string) map[string]bool {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue // Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "$") {
+			continue
 		}
 
 		parts := strings.SplitN(line, "=", 2)
@@ -40,4 +40,64 @@ func getChannelsFromConfig(filePath string) map[string]bool {
 		log.Fatal(err)
 	}
 	return channels
+}
+
+// Read Twitch config from file and return TwitchConfig struct
+// Errors out if values arent filled
+func getTwitchConfigFromFile(filePath string) TwitchConfig {
+	config := TwitchConfig{}
+	file, err := os.Open(filePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		if !strings.HasPrefix(line, "$") {
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		tmp := make([]string, 0)
+		switch key {
+		case "$nick":
+			config.Nickname = value
+		case "$oauth":
+			if !strings.HasPrefix(value, "oauth:") {
+				config.OauthToken = "oauth:" + value
+			} else {
+				config.OauthToken = value
+			}
+		case "$filter":
+			tmp = append(tmp, strings.Split(value, ",")...)
+			config.FilterList = tmp
+		}
+
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
+
+	if config.Nickname == "" {
+		log.Fatal("Missing $nick in config file")
+	}
+	if config.OauthToken == "" {
+		log.Fatal("Missing $oauth in config file")
+	}
+
+	return config
 }

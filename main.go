@@ -4,10 +4,10 @@ package main
 import (
 	"embed"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2"
@@ -22,30 +22,49 @@ var bufferSize int = 256
 var otoCtx, _ = initOto()
 var loggerList map[string]*os.File = make(map[string]*os.File)
 
+var filterList = getTwitchConfigFromFile("config.txt").FilterList
+
+func containsAny(text string, keywords []string) bool {
+	textLower := strings.ToLower(text)
+	for _, keyword := range keywords {
+		if strings.Contains(textLower, strings.ToLower(keyword)) {
+			return true
+		}
+	}
+	return false
+}
+
 func main() {
 	os.Mkdir("logs", 0700)
+	log.Println(filterList)
 
 	t := time.Now()
 	formatted := fmt.Sprintf("%d-%02d-%02d",
 		t.Year(), t.Month(), t.Day())
 
-	f, err := os.OpenFile(filepath.Join("logs", formatted+"_log.txt"), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	f, err := os.OpenFile(filepath.Join("logs", formatted+"_log.txt"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("error opening file: %v", err)
 	}
 	defer f.Close()
 
-	mw := io.MultiWriter(os.Stdout, f)
-	log.SetOutput(mw)
+	// Check if we're running with a console
+	// if isConsoleAvailable() {
+	// 	mw := io.MultiWriter(os.Stdout, f)
+	// 	log.SetOutput(mw)
+	// } else {
+	// 	log.SetOutput(f)
+	// }
+	log.SetOutput(f)
 	go func() {
 		if err := Fetch7TVGlobalEmotes(); err != nil {
-			log.Fatalf("failed to fetch 7TV global emotes: %v", err)
+			log.Printf("failed to fetch 7TV global emotes: %v", err)
 		}
 		if err := FetchBTTVGlobalEmotes(); err != nil {
-			log.Fatalf("failed to fetch BTTV global emotes: %v", err)
+			log.Printf("failed to fetch BTTV global emotes: %v", err)
 		}
 		if err := FetchFFZGlobalEmotes(); err != nil {
-			log.Fatalf("failed to fetch FFZ global emotes: %v", err)
+			log.Printf("failed to fetch FFZ global emotes: %v", err)
 		}
 	}()
 

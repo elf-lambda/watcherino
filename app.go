@@ -19,6 +19,12 @@ import (
 
 // a.channels normal, a.connections -> # obviously
 
+type TwitchConfig struct {
+	Nickname   string `json:"nickname"`
+	OauthToken string `json:"oauthToken"`
+	FilterList []string
+}
+
 // ChannelConnection represents a connection to a single Twitch channel
 type ChannelConnection struct {
 	channel     string
@@ -292,12 +298,13 @@ func (a *App) forwardMessages(ctx context.Context, conn *ChannelConnection) {
 			}
 
 			msgData := map[string]interface{}{
-				"username":  msg.Username,
-				"content":   msg.Content,
-				"channel":   msg.Channel,
-				"timestamp": msg.Timestamp.Format("15:04:05"),
-				"userColor": msg.UserColor,
-				"emotes":    emoteInfo,
+				"username":      msg.Username,
+				"content":       msg.Content,
+				"channel":       msg.Channel,
+				"timestamp":     msg.Timestamp.Format("15:04:05"),
+				"userColor":     msg.UserColor,
+				"emotes":        emoteInfo,
+				"isHighlighted": false,
 			}
 
 			channelToLog := strings.TrimPrefix(conn.client.channel, "#")
@@ -322,8 +329,15 @@ func (a *App) forwardMessages(ctx context.Context, conn *ChannelConnection) {
 			isActive := (a.activeChannel == conn.channel)
 			a.connectionsMu.RUnlock()
 
+			if containsAny(msg.Content, filterList) {
+				msgData["isHighlighted"] = true
+				go playMp3(otoCtx, getMp3ForChannel("ding"), 0.10)
+			}
+
 			if isActive {
 				runtime.EventsEmit(a.ctx, "new-message", msgData)
+			} else if !isActive && msgData["isHighlighted"] == true {
+				runtime.EventsEmit(a.ctx, "highlight-channel", msgData)
 			}
 
 		case reward, ok := <-conn.client.RewardChannel():
@@ -884,4 +898,8 @@ func (a *App) OnBeforeClose(ctx context.Context) bool {
 
 func (a *App) GetBufferSize() int {
 	return bufferSize
+}
+
+func (a *App) GetTwitchConfig() TwitchConfig {
+	return getTwitchConfigFromFile("config.txt")
 }

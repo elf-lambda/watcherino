@@ -57,26 +57,91 @@ function isAtBottom() {
     );
 }
 
+// Client-side message sending via websockets
+async function sendMessageClientSide(message) {
+    if (!currentChannel || !message) return;
+
+    try {
+        const twitchConfig = await go.main.App.GetTwitchConfig();
+
+        return new Promise((resolve, reject) => {
+            const ws = new WebSocket("wss://irc-ws.chat.twitch.tv:443");
+            let authenticated = false;
+            let messageSent = false;
+
+            const timeout = setTimeout(() => {
+                ws.close();
+                reject(new Error("Connection timeout"));
+            }, 10000);
+
+            ws.onopen = () => {
+                console.log("Connected to Twitch IRC");
+                ws.send(`PASS ${twitchConfig.oauthToken}`);
+                ws.send(`NICK ${twitchConfig.nickname}`);
+                ws.send(`JOIN ${currentChannel}`);
+            };
+
+            ws.onmessage = (event) => {
+                const data = event.data.trim();
+                console.log("IRC:", data);
+
+                if (data.startsWith("PING")) {
+                    ws.send(`PONG ${data.substring(5)}`);
+                    return;
+                }
+
+                if (data.includes("366") || data.includes("JOIN")) {
+                    if (!messageSent) {
+                        messageSent = true;
+                        ws.send(`PRIVMSG ${currentChannel} :${message}`);
+
+                        setTimeout(() => {
+                            ws.close();
+                            clearTimeout(timeout);
+                            resolve();
+                        }, 500);
+                    }
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error("WebSocket error:", error);
+                clearTimeout(timeout);
+                reject(error);
+            };
+
+            ws.onclose = () => {
+                console.log("Disconnected from Twitch IRC");
+                clearTimeout(timeout);
+                if (!messageSent) {
+                    reject(new Error("Connection closed before message sent"));
+                }
+            };
+        });
+    } catch (error) {
+        console.error("Failed to send message:", error);
+        showError(`Failed to send message: ${error.message}`);
+    }
+}
+
 // Setup event listeners for UI elements
 function setupEventListeners() {
-    // Connect/switch to custom channel
+    // Send message client side
     if (connectCustomBtn) {
         connectCustomBtn.addEventListener("click", async () => {
-            const channel = customChannelInput.value.trim();
-            if (channel) {
-                await switchToChannel(channel);
+            const message = customChannelInput.value.trim();
+            if (message && currentChannel) {
+                await sendMessageClientSide(message);
                 customChannelInput.value = "";
             }
         });
     }
-
-    // Same as above
     if (customChannelInput) {
         customChannelInput.addEventListener("keypress", async (e) => {
             if (e.key === "Enter") {
-                const channel = customChannelInput.value.trim();
-                if (channel) {
-                    await switchToChannel(channel);
+                const message = customChannelInput.value.trim();
+                if (message && currentChannel) {
+                    await sendMessageClientSide(message);
                     customChannelInput.value = "";
                 }
             }
@@ -115,11 +180,45 @@ function setupEventListeners() {
     }
 }
 
+// Highlight chat message message
+function highlightMessage(message) {
+    if (
+        currentChannel === message.channel ||
+        currentChannel === "#" + message.channel
+    ) {
+        const messages = chatMessages.querySelectorAll(".chat-message");
+        if (messages.length > 0) {
+            const lastMessage = messages[messages.length - 1];
+            lastMessage.classList.add("message-highlighted");
+        }
+    }
+}
+
+// Highlight channel even if its not selected
+function highlightChannel(channelName) {
+    const normalizedChannel = channelName.startsWith("#")
+        ? channelName.replace("#", "")
+        : channelName;
+
+    const channelItems = document.querySelectorAll(".channel-item");
+
+    channelItems.forEach((item) => {
+        const nameEl = item.querySelector(".channel-name");
+        if (nameEl && nameEl.textContent === normalizedChannel) {
+            item.classList.add("channel-highlighted");
+        }
+    });
+}
+
 // Setup Wails event listeners
 function setupWailsEventListeners() {
     // Listen for new messages (only for active channel now)
     runtime.EventsOn("new-message", (message) => {
         addMessageToChat(message);
+    });
+    runtime.EventsOn("highlight-channel", (message) => {
+        // highlightMessage(message);
+        highlightChannel(message.channel);
     });
 
     // Listen for channel messages when switching
@@ -503,6 +602,11 @@ function addMessageToChat(message, shouldScroll = true) {
 
     const usernameColor = message.userColor || "#ffffff";
     let contentHtml = escapeHtml(message.content);
+
+    if (message.isHighlighted) {
+        messageEl.classList.add("message-highlighted");
+        highlightChannel(message.channel);
+    }
 
     if (message.emotes) {
         for (const [emoteName, base64] of Object.entries(message.emotes)) {
