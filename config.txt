@@ -7,3 +7,6 @@
 # shroud=false
 # pokimane=true
 # Add your streamers below:
+$nick=YOUR_NICK
+$oauth=YOUR_OAUTH
+$filter=YOUR_FILTER
