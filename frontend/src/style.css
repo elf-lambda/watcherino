@@ -224,6 +224,20 @@ body {
     color: var(--bg-primary);
 }
 
+.connect-btn {
+    background: var(--text-muted);
+    border-color: var(--text-muted);
+    color: var(--text-primary);
+}
+
+.connect-btn:hover {
+    background: var(--text-primary);
+    border-color: var(--text-primary);
+    color: var(--bg-primary);
+}
+
+
+
 /* Channel Panel (Right side) - FIXED */
 .channel-panel {
     width: var(--channel-panel-width);

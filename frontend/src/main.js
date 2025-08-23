@@ -19,6 +19,7 @@ const newChannelInput = document.getElementById("new-channel");
 const addChannelBtn = document.getElementById("add-channel");
 const disconnectBtn = document.getElementById("disconnect-btn");
 const viewerCountEl = document.getElementById("viewer-count");
+const connectBtn = document.getElementById("connect-btn");
 
 document.addEventListener("DOMContentLoaded", async () => {
     setupEventListeners();
@@ -126,6 +127,20 @@ async function sendMessageClientSide(message) {
 
 // Setup event listeners for UI elements
 function setupEventListeners() {
+    if (connectBtn) {
+        connectBtn.addEventListener("click", async () => {
+            showLoading(true);
+            try {
+                await go.main.App.ConnectToAllChannels();
+                addSystemMessage("Connecting to all channels...");
+            } catch (error) {
+                console.error("Failed to connect to all channels:", error);
+                showError("Failed to connect to all channels");
+            } finally {
+                showLoading(false);
+            }
+        });
+    }
     // Send message client side
     if (connectCustomBtn) {
         connectCustomBtn.addEventListener("click", async () => {
@@ -245,6 +260,9 @@ function setupWailsEventListeners() {
         await renderChannelList();
         // switchToChannel(channel);
         addSystemMessage(`Connected to ${channel}`);
+
+        if (connectBtn) connectBtn.style.display = "none";
+        if (disconnectBtn) disconnectBtn.style.display = "inline-block";
     });
 
     // Listen for channel disconnected
@@ -286,6 +304,9 @@ function setupWailsEventListeners() {
         clearChatMessages();
         updateConnectionStatus(false);
         await renderChannelList();
+
+        if (connectBtn) connectBtn.style.display = "inline-block";
+        if (disconnectBtn) disconnectBtn.style.display = "none";
     });
 
     // Listen for reward redemptions
