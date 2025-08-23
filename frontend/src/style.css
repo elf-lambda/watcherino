@@ -254,6 +254,8 @@ body {
     cursor: pointer;
     transition: all 0.2s;
     margin-left: 8px;
+    /* border: 2px solid #8a060679; */
+
 }
 
 .minimize-btn:hover {
@@ -417,7 +419,18 @@ body {
 
 /* Restore button styling */
 .restore-button {
-    position: fixed;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    padding: 4px 8px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-left: 8px;
+    border: 2px solid #8a060679;
+
+    /* position: fixed;
     right: 10px;
     top: 50%;
     transform: translateY(-50%);
@@ -426,12 +439,12 @@ body {
     border: 1px solid var(--border-color);
     padding: 10px 8px;
     font-family: inherit;
-    font-size: 14px;
+    font-size: 10px;
     cursor: pointer;
     transition: all 0.2s;
     z-index: 1000;
     border-radius: 3px 0 0 3px;
-    border: 2px solid #8a060679;
+    border: 2px solid #8a060679; */
 }
 
 .restore-button:hover {
