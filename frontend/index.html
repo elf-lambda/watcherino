@@ -22,6 +22,12 @@
                     <span id="viewer-count" class="viewer-count">
                         <span id="viewer-count-number">0</span> viewers
                     </span>
+                    <button id="minimize-btn" class="terminal-button minimize-btn" title="Minimize Panel">
+                        >>
+                    </button>
+                    <!-- Add the restore button (will be hidden initially) -->
+                    <button id="restore-btn" class="restore-button" style="display: none;" title="Show Channels">
+                        << </button>
                 </div>
             </div>
 
@@ -42,22 +48,24 @@
         </div>
 
         <!-- Channel List Panel (Right) -->
-        <div class="channel-panel">
+        <div class="channel-panel" id="channel-panel">
             <div class="panel-header">
                 <div class="terminal-title">
                     <span class="terminal-symbol"></span>
-                    <span>Channels</span>
+                    <!-- <span>Channels</span> -->
                 </div>
                 <!-- <button id="disconnect-btn" class="terminal-button disconnect-btn" style="display: none;">
                     Disconnect
                 </button> -->
-                <div class="connection-buttons">
-                    <button id="connect-btn" class="terminal-button connect-btn">
-                        Connect
-                    </button>
-                    <button id="disconnect-btn" class="terminal-button disconnect-btn" style="display: none;">
-                        Disconnect
-                    </button>
+                <div class="panel-controls">
+                    <div class="connection-buttons">
+                        <button id="connect-btn" class="terminal-button connect-btn" style="display: none">
+                            Connect
+                        </button>
+                        <button id="disconnect-btn" class="terminal-button disconnect-btn" style="display: none;">
+                            Disconnect
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -73,6 +81,8 @@
             </div>
         </div>
     </div>
+
+
 
     <!-- Loading overlay -->
     <div class="loading-overlay" id="loading-overlay" style="display: none;">

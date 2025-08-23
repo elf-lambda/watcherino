@@ -21,11 +21,17 @@ const disconnectBtn = document.getElementById("disconnect-btn");
 const viewerCountEl = document.getElementById("viewer-count");
 const connectBtn = document.getElementById("connect-btn");
 
+const minimizeBtn = document.getElementById("minimize-btn");
+const restoreBtn = document.getElementById("restore-btn");
+const channelPanel = document.getElementById("channel-panel");
+const appContainer = document.querySelector(".app-container");
+
 document.addEventListener("DOMContentLoaded", async () => {
     setupEventListeners();
     await loadChannels();
     await loadBufferSize();
     setupWailsEventListeners();
+    updateButtonVisibility();
 });
 
 // Load buffer size from backend
@@ -44,6 +50,7 @@ async function loadChannels() {
         channels = await go.main.App.GetChannels();
         console.log("Loaded channels:", channels);
         await renderChannelList();
+        updateButtonVisibility();
     } catch (error) {
         console.error("Failed to load channels:", error);
         showError("Failed to load channels");
@@ -127,6 +134,31 @@ async function sendMessageClientSide(message) {
 
 // Setup event listeners for UI elements
 function setupEventListeners() {
+    if (minimizeBtn) {
+        minimizeBtn.addEventListener("click", () => {
+            console.log("Minimize clicked"); // Debug log
+            channelPanel.style.display = "none";
+            restoreBtn.style.display = "block";
+            appContainer.classList.add("panel-hidden");
+            minimizeBtn.style = "display: none";
+        });
+    } else {
+        console.log("minimizeBtn not found");
+    }
+
+    if (restoreBtn) {
+        restoreBtn.addEventListener("click", () => {
+            console.log("Restore clicked");
+            channelPanel.style.display = "flex";
+            restoreBtn.style.display = "none";
+            appContainer.classList.remove("panel-hidden");
+            minimizeBtn.style = "display: show";
+            scrollToBottom();
+        });
+    } else {
+        console.log("restoreBtn not found");
+    }
+
     if (connectBtn) {
         connectBtn.addEventListener("click", async () => {
             showLoading(true);
@@ -141,6 +173,7 @@ function setupEventListeners() {
             }
         });
     }
+
     // Send message client side
     if (connectCustomBtn) {
         connectCustomBtn.addEventListener("click", async () => {
@@ -151,6 +184,7 @@ function setupEventListeners() {
             }
         });
     }
+
     if (customChannelInput) {
         customChannelInput.addEventListener("keypress", async (e) => {
             if (e.key === "Enter") {
@@ -171,7 +205,6 @@ function setupEventListeners() {
                 await addChannel(channel);
                 newChannelInput.value = "";
             }
-            // sortChannelList();
         });
     }
 
@@ -192,6 +225,21 @@ function setupEventListeners() {
         disconnectBtn.addEventListener("click", async () => {
             await disconnectAllChannels();
         });
+    }
+}
+
+// Update button visibility based on connection status
+function updateButtonVisibility() {
+    const hasConnectedChannels = connectedChannels.size > 0;
+
+    if (connectBtn && disconnectBtn) {
+        if (hasConnectedChannels) {
+            connectBtn.style.display = "none";
+            disconnectBtn.style.display = "inline-block";
+        } else {
+            connectBtn.style.display = "inline-block";
+            disconnectBtn.style.display = "none";
+        }
     }
 }
 
@@ -231,8 +279,8 @@ function setupWailsEventListeners() {
     runtime.EventsOn("new-message", (message) => {
         addMessageToChat(message);
     });
+
     runtime.EventsOn("highlight-channel", (message) => {
-        // highlightMessage(message);
         highlightChannel(message.channel);
     });
 
@@ -258,11 +306,8 @@ function setupWailsEventListeners() {
         connectedChannels.add(channel);
         updateActiveChannel(channel);
         await renderChannelList();
-        // switchToChannel(channel);
+        updateButtonVisibility();
         addSystemMessage(`Connected to ${channel}`);
-
-        if (connectBtn) connectBtn.style.display = "none";
-        if (disconnectBtn) disconnectBtn.style.display = "inline-block";
     });
 
     // Listen for channel disconnected
@@ -270,6 +315,7 @@ function setupWailsEventListeners() {
         console.log(`Channel disconnected event: ${channel}`);
         connectedChannels.delete(channel);
         await renderChannelList();
+        updateButtonVisibility();
         addSystemMessage(`Disconnected from ${channel}`);
     });
 
@@ -279,8 +325,8 @@ function setupWailsEventListeners() {
         connectedChannels.delete(
             channel.startsWith("#") ? channel : "#" + channel
         );
-
         loadChannels();
+        updateButtonVisibility();
         addSystemMessage(`Removed ${channel}`);
     });
 
@@ -304,9 +350,7 @@ function setupWailsEventListeners() {
         clearChatMessages();
         updateConnectionStatus(false);
         await renderChannelList();
-
-        if (connectBtn) connectBtn.style.display = "inline-block";
-        if (disconnectBtn) disconnectBtn.style.display = "none";
+        updateButtonVisibility();
     });
 
     // Listen for reward redemptions
@@ -355,9 +399,7 @@ async function switchToChannel(channel) {
         currentChannel = normalizedChannel;
 
         updateConnectionStatus(true);
-        if (disconnectBtn) {
-            disconnectBtn.style.display = "inline-block";
-        }
+        updateButtonVisibility();
 
         // Get initial viewer count
         try {
