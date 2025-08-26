@@ -3,7 +3,7 @@
 Watcherino is a chat client for twitch focused on privacy, minimalism and notifications.
 
 ![Demo 1](screenshots/demo.gif)
-![Demo 2](screenshots/showcase.webm)
+![Demo 2](screenshots/showcase.gif)
 
 ### Chat Management
 
