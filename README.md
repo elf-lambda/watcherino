@@ -32,3 +32,10 @@ Watcherino is a chat client for twitch focused on privacy, minimalism and notifi
 -   **Keyword highlighting** - Configure custom keywords to trigger notifications
 -   **Visual indicators** - Red borders around highlighted messages and channels
 -   **Channel notifications** - Visual indicators when monitored channels receive highlights
+
+### Installation
+
+1. Install Wails [Wails Embed](https://wails.io/docs/gettingstarted/installation)
+2. `go get github.com/ebitengine/oto/v3`
+3. `go get github.com/hajimehoshi/go-mp3`
+4. Run or install with `wails dev` or `wails build`
