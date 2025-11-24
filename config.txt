@@ -10,3 +10,7 @@
 $nick=YOUR_NICK
 $oauth=YOUR_OAUTH
 $filter=YOUR_FILTER
+$recording=false
+$archivedir=E:/archives
+$ttspath=tts_piper/en_US-joe-medium.onnx
+$ttsmessage=is now lyve.
