@@ -248,6 +248,32 @@ func (c *Client) listen() {
 				if err := scanner.Err(); err != nil {
 					c.safeSendError(fmt.Errorf("scanner error: %w", err))
 				}
+
+				if !c.stopped {
+					log.Printf("Connection lost for %s, attempting reconnection in 5 seconds...", c.channel)
+					time.Sleep(5 * time.Second)
+
+					if err := c.Connect(); err != nil {
+						log.Printf("Reconnection failed for %s: %v", c.channel, err)
+						c.safeSendError(fmt.Errorf("reconnection failed: %w", err))
+					} else {
+						log.Printf("Successfully reconnected to %s", c.channel)
+
+						reconnectMsg := Message{
+							Username:  "System",
+							Content:   "Reconnected to channel",
+							Channel:   c.channel,
+							Tags:      make(map[string]string),
+							RawData:   "",
+							Timestamp: time.Now(),
+							UserColor: "#FF6B6B",
+						}
+						c.messageBuffer.Add(reconnectMsg)
+						c.safeSendMessage(reconnectMsg)
+
+						go c.listen()
+					}
+				}
 				return
 			}
 
