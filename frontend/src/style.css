@@ -608,3 +608,17 @@ body {
     border: 1px solid #ff444498 !important;
     border-radius: 4px;
 }
+
+.audio-btn {
+    margin-left: 10px;
+    font-size: 16px;
+    padding: 4px 8px;
+}
+
+.audio-btn.muted {
+    opacity: 0.5;
+}
+
+.audio-btn.locked {
+    color: #00ff00;
+}

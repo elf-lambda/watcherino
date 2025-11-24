@@ -26,6 +26,11 @@ const restoreBtn = document.getElementById("restore-btn");
 const channelPanel = document.getElementById("channel-panel");
 const appContainer = document.querySelector(".app-container");
 
+const audioLockBtn = document.getElementById("audio-lock-btn");
+let audioLocked = false;
+const audioToggleBtn = document.getElementById("audio-toggle-btn");
+let audioMuted = false;
+
 document.addEventListener("DOMContentLoaded", async () => {
     setupEventListeners();
     await loadChannels();
@@ -224,6 +229,31 @@ function setupEventListeners() {
     if (disconnectBtn) {
         disconnectBtn.addEventListener("click", async () => {
             await disconnectAllChannels();
+        });
+    }
+
+    if (audioLockBtn) {
+        audioLockBtn.addEventListener("click", async () => {
+            try {
+                audioLocked = !audioLocked;
+                audioLockBtn.textContent = audioLocked ? "🔒" : "🔓";
+                audioLockBtn.classList.toggle("locked", audioLocked);
+                await go.main.App.SetAudioLock(audioLocked);
+            } catch (error) {
+                console.error("Failed to lock audio:", error);
+            }
+        });
+    }
+
+    if (audioToggleBtn) {
+        audioToggleBtn.addEventListener("click", async () => {
+            try {
+                audioMuted = await go.main.App.ToggleAudioMute();
+                audioToggleBtn.textContent = audioMuted ? "🔇" : "🔊";
+                audioToggleBtn.classList.toggle("muted", audioMuted);
+            } catch (error) {
+                console.error("Failed to toggle audio:", error);
+            }
         });
     }
 }
