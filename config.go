@@ -9,7 +9,7 @@ import (
 )
 
 // Read config file and parse channel=true/false format
-func getChannelsFromConfig(filePath string) map[string]bool {
+func GetChannelsFromConfig(filePath string) map[string]bool {
 	channels := make(map[string]bool)
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -44,7 +44,7 @@ func getChannelsFromConfig(filePath string) map[string]bool {
 
 // Read Twitch config from file and return TwitchConfig struct
 // Errors out if values arent filled
-func getTwitchConfigFromFile(filePath string) TwitchConfig {
+func GetTwitchConfigFromFile(filePath string) TwitchConfig {
 	config := TwitchConfig{}
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -84,6 +84,14 @@ func getTwitchConfigFromFile(filePath string) TwitchConfig {
 		case "$filter":
 			tmp = append(tmp, strings.Split(value, ",")...)
 			config.FilterList = tmp
+		case "$recording":
+			config.RecordingEnabled = strings.ToLower(value) == "true"
+		case "$archivedir":
+			config.ArchiveDir = value
+		case "$ttspath":
+			config.TTSPath = value
+		case "$ttsmessage":
+			config.TTSMessage = value
 		}
 
 	}

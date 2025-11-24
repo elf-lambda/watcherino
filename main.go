@@ -22,7 +22,20 @@ var bufferSize int = 256
 var otoCtx, _ = initOto()
 var loggerList map[string]*os.File = make(map[string]*os.File)
 
-var filterList = getTwitchConfigFromFile("config.txt").FilterList
+var filterList = GetTwitchConfigFromFile("config.txt").FilterList
+
+var toRecord = GetTwitchConfigFromFile("config.txt").RecordingEnabled
+
+var channels_map = GetChannelsFromConfig("config.txt")
+
+var archiveDir = GetTwitchConfigFromFile("config.txt").ArchiveDir
+
+var streamlinkPids = make([]int, 0)
+
+var audioMuted = false
+var audioLocked = false
+
+var audioRecorder = NewTwitchRecorder("none", "none")
 
 func containsAny(text string, keywords []string) bool {
 	textLower := strings.ToLower(text)
@@ -34,7 +47,25 @@ func containsAny(text string, keywords []string) bool {
 	return false
 }
 
+func cleanupStreamlinkProcs() {
+	for _, pid := range streamlinkPids {
+		p, err := os.FindProcess(pid)
+		if err == nil {
+			_ = p.Kill()
+			log.Printf("Killed streamlink process: %d", pid)
+		}
+	}
+}
+
 func main() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Panic recovered: %v", r)
+		}
+		cleanupStreamlinkProcs()
+		audioRecorder.StopAudio()
+	}()
+
 	os.Mkdir("logs", 0700)
 	log.Println(filterList)
 

@@ -1,4 +1,3 @@
-// app.go - Refactored for multi-channel support
 package main
 
 import (
@@ -20,9 +19,13 @@ import (
 // a.channels normal, a.connections -> # obviously
 
 type TwitchConfig struct {
-	Nickname   string `json:"nickname"`
-	OauthToken string `json:"oauthToken"`
-	FilterList []string
+	Nickname         string `json:"nickname"`
+	OauthToken       string `json:"oauthToken"`
+	FilterList       []string
+	RecordingEnabled bool
+	ArchiveDir       string
+	TTSPath          string
+	TTSMessage       string
 }
 
 // ChannelConnection represents a connection to a single Twitch channel
@@ -50,7 +53,6 @@ type App struct {
 }
 
 func NewApp() *App {
-	channels_map := getChannelsFromConfig("config.txt")
 	channels := make([]string, 0)
 	// TODO Add tts on/off
 	for x, _ := range channels_map {
@@ -432,10 +434,44 @@ func (a *App) SwitchToChannel(channel string) error {
 	viewerCount := conn.viewerCount
 	conn.mu.RUnlock()
 
+	if !audioLocked {
+		if audioMuted {
+			audioRecorder.StopAudio()
+		}
+		audioRecorder.channel = strings.TrimPrefix(channel, "#")
+		isLive := a.checkStreamStatus(strings.TrimPrefix(channel, "#"))
+		if !audioMuted && isLive {
+			go func() {
+				audioRecorder.StopAudio()
+				audioRecorder.StartAudioOnly(10)
+			}()
+		}
+	}
+
 	runtime.EventsEmit(a.ctx, "viewer-count", viewerCount)
 	runtime.EventsEmit(a.ctx, "channel-switched", channel)
 
 	return nil
+}
+
+func (a *App) ToggleAudioMute() bool {
+	audioMuted = !audioMuted
+	if audioMuted {
+		audioRecorder.StopAudio()
+	} else {
+		// Restart audio for current audio channel (respects lock)
+		if audioRecorder.channel != "" && audioRecorder.channel != "none" {
+			channel := audioRecorder.channel
+			if a.checkStreamStatus(channel) {
+				go audioRecorder.StartAudioOnly(10)
+			}
+		}
+	}
+	return audioMuted
+}
+
+func (a *App) SetAudioLock(locked bool) {
+	audioLocked = locked
 }
 
 func (a *App) emitRecentMessages(channel string) {
@@ -578,6 +614,13 @@ func (a *App) AddChannel(channel string) {
 	if isLive {
 		mp3File := getMp3ForChannel(channel)
 		go playMp3(otoCtx, mp3File, 0.10)
+		log.Println("Starting archiving for ", channel)
+		go func(ch string) {
+			if toRecord {
+				recorder := NewTwitchRecorder(ch, archiveDir)
+				recorder.Start()
+			}
+		}(channel)
 	}
 	a.channels = append(a.channels, channel)
 	a.liveStatuses[channel] = isLive
@@ -806,6 +849,14 @@ func (a *App) startLiveStatusMonitoring() {
 
 		if isLive {
 			playMp3(otoCtx, mp3File, 0.10)
+			log.Println("Starting archiving for ", channel)
+
+			go func(ch string) {
+				if toRecord && channels_map[channel] {
+					recorder := NewTwitchRecorder(ch, archiveDir)
+					recorder.Start()
+				}
+			}(channel)
 		}
 		runtime.EventsEmit(a.ctx, "channel-live-status", map[string]interface{}{
 			"channel": channel,
@@ -862,7 +913,14 @@ func (a *App) checkAllChannelsStatus() {
 				// play mp3
 				mp3File := getMp3ForChannel(channel)
 				playMp3(otoCtx, mp3File, 0.10)
+				log.Println("Starting archiving for ", channel)
 
+				go func(ch string) {
+					if toRecord && channels_map[channel] {
+						recorder := NewTwitchRecorder(ch, archiveDir)
+						recorder.Start()
+					}
+				}(channel)
 			}
 
 			runtime.EventsEmit(a.ctx, "channel-live-status", map[string]interface{}{
@@ -901,5 +959,5 @@ func (a *App) GetBufferSize() int {
 }
 
 func (a *App) GetTwitchConfig() TwitchConfig {
-	return getTwitchConfigFromFile("config.txt")
+	return GetTwitchConfigFromFile("config.txt")
 }
