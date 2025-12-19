@@ -39,3 +39,4 @@ Watcherino is a chat client for twitch focused on privacy, minimalism and notifi
 2. `go get github.com/ebitengine/oto/v3`
 3. `go get github.com/hajimehoshi/go-mp3`
 4. Run or install with `wails dev` or `wails build`
+5. Edit the config.txt

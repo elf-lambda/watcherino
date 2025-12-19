@@ -1,3 +1,22 @@
 build/bin
 node_modules
 frontend/dist
+
+channels/
+logs/
+mp3/
+
+frontend/dist/
+frontend/node_modules/
+frontend/wailsjs/
+frontend/package.json.md5
+
+.DS_Store
+Thumbs.db
+build/
+wailsjs/
+config - Copy.txt
+go-wails-01.exe
+main-go-backup.txt
+main-js-backup.txt
+config.txt
