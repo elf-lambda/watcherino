@@ -79,6 +79,12 @@ func main() {
 	}
 	defer f.Close()
 
+	err = initTTS()
+	if err != nil {
+		log.Fatalf("Failed to init TTS: %v", err)
+	}
+	defer cleanupTTS()
+
 	// Check if we're running with a console
 	// if isConsoleAvailable() {
 	// 	mw := io.MultiWriter(os.Stdout, f)

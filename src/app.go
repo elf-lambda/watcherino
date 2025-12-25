@@ -333,7 +333,7 @@ func (a *App) forwardMessages(ctx context.Context, conn *ChannelConnection) {
 
 			if containsAny(msg.Content, filterList) {
 				msgData["isHighlighted"] = true
-				go playMp3(otoCtx, getMp3ForChannel("ding"), 0.10)
+				go playWav(otoCtx, getMp3ForChannel("ding"), 0.10)
 			}
 
 			if isActive {
@@ -377,6 +377,8 @@ func (a *App) forwardMessages(ctx context.Context, conn *ChannelConnection) {
 				"channel": conn.channel,
 				"error":   err.Error(),
 			})
+			a.DisconnectFromChannel(conn.channel)
+			a.ConnectToChannel(conn.channel)
 			return
 		}
 	}
@@ -613,7 +615,7 @@ func (a *App) AddChannel(channel string) {
 	isLive := a.checkStreamStatus(channel)
 	if isLive {
 		mp3File := getMp3ForChannel(channel)
-		go playMp3(otoCtx, mp3File, 0.10)
+		go playWav(otoCtx, mp3File, 0.10)
 		log.Println("Starting archiving for ", channel)
 		go func(ch string) {
 			if toRecord {
@@ -848,7 +850,7 @@ func (a *App) startLiveStatusMonitoring() {
 		}()
 
 		if isLive {
-			playMp3(otoCtx, mp3File, 0.10)
+			playWav(otoCtx, mp3File, 0.10)
 			log.Println("Starting archiving for ", channel)
 
 			go func(ch string) {
@@ -912,7 +914,7 @@ func (a *App) checkAllChannelsStatus() {
 			if currentStatus {
 				// play mp3
 				mp3File := getMp3ForChannel(channel)
-				playMp3(otoCtx, mp3File, 0.10)
+				playWav(otoCtx, mp3File, 0.10)
 				log.Println("Starting archiving for ", channel)
 
 				go func(ch string) {
@@ -940,8 +942,6 @@ func (a *App) checkAllChannelsStatus() {
 func (a *App) GetChannelLiveStatus(channel string) bool {
 	a.connectionsMu.RLock()
 	defer a.connectionsMu.RUnlock()
-	// log.Printf("%s is %t\n", channel, a.liveStatuses[channel])
-	// log.Println(a.liveStatuses)
 	return a.liveStatuses[strings.TrimPrefix(channel, "#")]
 }
 

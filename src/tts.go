@@ -5,26 +5,41 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
-	"syscall"
 	"time"
 
 	"github.com/ebitengine/oto/v3"
-	"github.com/hajimehoshi/go-mp3"
+	"github.com/go-audio/wav"
+	sherpa "github.com/k2-fsa/sherpa-onnx-go-windows"
 )
 
+var ttsEngine *sherpa.OfflineTts
+
+func initTTS() error {
+	config := sherpa.OfflineTtsConfig{}
+
+	config.Model.Vits.Model = "tts\\en_US-joe-medium.onnx"
+	config.Model.Vits.DataDir = "tts\\espeak-ng-data"
+	config.Model.Vits.Tokens = "tts\\tokens.txt"
+	config.Model.NumThreads = 1
+	config.Model.Debug = 0
+
+	tts := sherpa.NewOfflineTts(&config)
+	if tts == nil {
+		return fmt.Errorf("failed to create TTS engine")
+	}
+
+	ttsEngine = tts
+	return nil
+}
+
 func initOto() (*oto.Context, error) {
-	// Prepare an Oto context (this will use your default audio device) that will
-	// play all our sounds. Its configuration can't be changed later.
 	op := &oto.NewContextOptions{
-		SampleRate:   44100,
-		ChannelCount: 1, // Mono output
+		SampleRate:   22050,
+		ChannelCount: 1,
 		Format:       oto.FormatSignedInt16LE,
 	}
 
-	// Create Oto context
 	otoCtx, _, err := oto.NewContext(op)
 	if err != nil {
 		return nil, fmt.Errorf("oto.NewContext failed: %w", err)
@@ -33,31 +48,35 @@ func initOto() (*oto.Context, error) {
 	return otoCtx, nil
 }
 
-// Check if mp3 file for channel exists
-func checkMp3(channel string) bool {
-	if _, err := os.Stat("mp3/" + channel + ".mp3"); err == nil {
-		return true
-	}
-	return false
-}
-
-func playMp3(otoCtx *oto.Context, file []byte, volume float64) {
-	// Check if file data is valid
+func playWav(otoCtx *oto.Context, file []byte, volume float64) {
 	if len(file) == 0 {
-		log.Println("Warning: Empty MP3 data, skipping playback")
+		log.Println("Warning: Empty WAV data, skipping playback")
 		return
 	}
 
 	fileBytesReader := bytes.NewReader(file)
-	decodedMp3, err := mp3.NewDecoder(fileBytesReader)
-	if err != nil {
-		log.Printf("Warning: mp3.NewDecoder failed: %s, skipping playback\n", err.Error())
+	decoder := wav.NewDecoder(fileBytesReader)
+
+	if !decoder.IsValidFile() {
+		log.Println("Warning: Invalid WAV file, skipping playback")
 		return
 	}
-	player := otoCtx.NewPlayer(decodedMp3)
 
+	buf, err := decoder.FullPCMBuffer()
+	if err != nil {
+		log.Printf("Warning: failed to decode WAV: %s\n", err.Error())
+		return
+	}
+
+	pcmData := make([]byte, len(buf.Data)*2)
+	for i, sample := range buf.Data {
+		s := int16(sample)
+		pcmData[i*2] = byte(s)
+		pcmData[i*2+1] = byte(s >> 8)
+	}
+
+	player := otoCtx.NewPlayer(bytes.NewReader(pcmData))
 	player.SetVolume(volume)
-
 	player.Play()
 
 	for player.IsPlaying() {
@@ -70,71 +89,14 @@ func playMp3(otoCtx *oto.Context, file []byte, volume float64) {
 	}
 }
 
-// Check if mp3 file exists, otherwise generate one
-// TODO: add local TTS
-// func getMp3ForChannel(channel string) []byte {
-// 	os.MkdirAll("mp3", 0700)
-// 	var body []byte
-// 	haveFile := checkMp3(channel)
-// 	if haveFile {
-// 		body, err := os.ReadFile("mp3/" + channel + ".mp3")
-// 		if err != nil {
-// 			log.Printf("Error reading file: %v\n", err)
-// 			return nil
-// 		}
-// 		return body
-// 	} else {
-// 		textParam := url.QueryEscape(channel + " is now live.")
-// 		streamElementsUrl := fmt.Sprintf("https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=%s", textParam)
-
-// 		resp, err := http.Get(streamElementsUrl)
-// 		if err != nil {
-// 			log.Printf("Error fetching the URL: %v\n", err)
-// 			return nil
-// 		}
-// 		defer resp.Body.Close()
-
-// 		time.Sleep(500 * time.Millisecond)
-
-// 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotModified {
-// 			log.Printf("Failed to fetch the URL. HTTP Status: %s\n%s\n", resp.Status, streamElementsUrl)
-// 			return nil
-// 		}
-
-// 		body, err = io.ReadAll(resp.Body)
-// 		if err != nil {
-// 			log.Printf("Error reading response body: %v\n", err)
-// 			return nil
-// 		}
-// 		err = os.WriteFile("mp3/"+channel+".mp3", body, 0644)
-// 		if err != nil {
-// 			log.Printf("error: %s\n", err)
-// 		}
-// 		log.Printf("Wrote %s.mp3\n", channel)
-// 		return body
-// 	}
-// }
-
-// This is coded badly but kinda saves the old format in case for future api tts.
 func getMp3ForChannel(channel string) []byte {
+	return getWavForChannel(channel)
+}
 
-	os.MkdirAll("mp3", 0700)
+func getWavForChannel(channel string) []byte {
+	os.MkdirAll("audio", 0700)
+	fileName := filepath.Join("audio", channel+".wav")
 
-	fileName := filepath.Join("mp3", channel+".wav")
-
-	haveOldFile := checkMp3(channel)
-	if haveOldFile {
-
-		var body []byte
-		body, err := os.ReadFile("mp3/" + channel + ".mp3")
-		if err != nil {
-			log.Printf("Error reading file: %v\n", err)
-			return nil
-		}
-		return body
-	}
-
-	// Check if we already have the file
 	if _, err := os.Stat(fileName); err == nil {
 		body, err := os.ReadFile(fileName)
 		if err != nil {
@@ -144,7 +106,6 @@ func getMp3ForChannel(channel string) []byte {
 		return body
 	}
 
-	// If not Generate it locally
 	log.Printf("Generating local TTS for %s...", channel)
 
 	text := fmt.Sprintf("%s %s", channel, GetTwitchConfigFromFile("config.txt").TTSMessage)
@@ -156,57 +117,36 @@ func getMp3ForChannel(channel string) []byte {
 
 	log.Printf("Wrote %s\n", fileName)
 
-	// Read and return the new file
-	haveOldFile = checkMp3(channel)
-	if haveOldFile {
-
-		var body []byte
-		body, err := os.ReadFile("mp3/" + channel + ".mp3")
-		if err != nil {
-			log.Printf("Error reading file: %v\n", err)
-			return nil
-		}
-		return body
+	body, err := os.ReadFile(fileName)
+	if err != nil {
+		log.Printf("Error reading file: %v\n", err)
+		return nil
 	}
 
-	log.Println("ERROR IN getMp3ForChannel end!")
-	return []byte{}
+	return body
 }
 
 func generateLocalTTS(text string, outputPath string) error {
-	piperPath := "piper"
-	modelPath := GetTwitchConfigFromFile("config.txt").TTSPath
-
-	// Run Piper to generate WAV file
-	cmd := exec.Command(piperPath, "--model", modelPath, "--output_file", outputPath)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-
-	var stdin bytes.Buffer
-	stdin.Write([]byte(text))
-	cmd.Stdin = &stdin
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	if err != nil {
-		return fmt.Errorf("piper execution failed: %v | stderr: %s", err, stderr.String())
+	if ttsEngine == nil {
+		return fmt.Errorf("TTS engine not initialized")
 	}
 
-	// Convert WAV to MP3 using ffmpeg
-	mp3Path := strings.TrimSuffix(outputPath, ".wav") + ".mp3"
-	ffmpegCmd := exec.Command("ffmpeg", "-i", outputPath, "-codec:a", "libmp3lame", "-qscale:a", "2", mp3Path)
-	ffmpegCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-
-	var ffmpegStderr bytes.Buffer
-	ffmpegCmd.Stderr = &ffmpegStderr
-
-	err = ffmpegCmd.Run()
-	if err != nil {
-		return fmt.Errorf("ffmpeg conversion failed: %v | stderr: %s", err, ffmpegStderr.String())
+	audio := ttsEngine.Generate(text, 0, 1.0)
+	if audio == nil {
+		return fmt.Errorf("failed to generate audio")
 	}
 
-	// os.Remove(outputPath)
+	err := audio.Save(outputPath)
+	if !err {
+		return fmt.Errorf("failed to save audio: %v", err)
+	}
 
 	return nil
+}
+
+func cleanupTTS() {
+	if ttsEngine != nil {
+		sherpa.DeleteOfflineTts(ttsEngine)
+		ttsEngine = nil
+	}
 }
