@@ -149,13 +149,12 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
 
-	c.conn = conn
-
 	fmt.Fprintf(conn, "NICK %s\r\n", c.username)
 	fmt.Fprintf(conn, "JOIN %s\r\n", c.channel)
 	fmt.Fprintf(conn, "CAP REQ :twitch.tv/tags twitch.tv/commands\r\n")
 
 	c.mu.Lock()
+	c.conn = conn
 	c.connected = true
 	c.stopped = false
 	c.mu.Unlock()
@@ -278,7 +277,7 @@ func (c *Client) listen() {
 			}
 
 			data := scanner.Text()
-			// fmt.Println(data)
+
 			if data == "PING :tmi.twitch.tv" {
 				log.Printf("GOT A PING -> SENT A PONG for channel: %s\n", c.channel)
 				fmt.Fprintln(c.conn, "PONG :tmi.twitch.tv")
