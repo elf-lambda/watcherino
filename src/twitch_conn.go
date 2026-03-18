@@ -12,8 +12,6 @@ import (
 	"time"
 )
 
-// TODO: Add automatic / disconnect / reconnect
-
 // Message represents a parsed Twitch chat message
 type Message struct {
 	Username  string
@@ -51,7 +49,6 @@ type RingBuffer struct {
 	mu       sync.RWMutex
 }
 
-// NewRingBuffer creates a new ring buffer with specified size
 func NewRingBuffer(size int) *RingBuffer {
 	return &RingBuffer{
 		messages: make([]Message, size),
@@ -60,7 +57,6 @@ func NewRingBuffer(size int) *RingBuffer {
 	}
 }
 
-// Add adds a message to the ring buffer
 func (rb *RingBuffer) Add(msg Message) {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
@@ -69,25 +65,20 @@ func (rb *RingBuffer) Add(msg Message) {
 	rb.index = (rb.index + 1) % rb.size
 }
 
-// GetAll returns all messages in chronological order (oldest first)
 func (rb *RingBuffer) GetAll() []Message {
 	rb.mu.RLock()
 	defer rb.mu.RUnlock()
 
 	result := make([]Message, 0, rb.size)
-
-	// Start from the oldest message
 	for i := 0; i < rb.size; i++ {
 		idx := (rb.index + i) % rb.size
 		if !rb.messages[idx].Timestamp.IsZero() {
 			result = append(result, rb.messages[idx])
 		}
 	}
-
 	return result
 }
 
-// GetLast returns the last N messages
 func (rb *RingBuffer) GetLast(n int) []Message {
 	rb.mu.RLock()
 	defer rb.mu.RUnlock()
@@ -97,15 +88,12 @@ func (rb *RingBuffer) GetLast(n int) []Message {
 	}
 
 	result := make([]Message, 0, n)
-
-	// Get the last n messages
 	for i := n - 1; i >= 0; i-- {
 		idx := (rb.index - 1 - i + rb.size) % rb.size
 		if !rb.messages[idx].Timestamp.IsZero() {
 			result = append([]Message{rb.messages[idx]}, result...)
 		}
 	}
-
 	return result
 }
 
@@ -124,417 +112,321 @@ type Client struct {
 	stopped       bool
 }
 
-// NewClient creates a new Twitch IRC client
 func NewClient(channel string, bufferSize int) *Client {
 	return &Client{
 		channel:       channel,
 		messageBuffer: NewRingBuffer(bufferSize),
-		rewardChan:    make(chan RewardRedemption, 10),
-		messageChan:   make(chan Message, 10),
+		rewardChan:    make(chan RewardRedemption, 100),
+		messageChan:   make(chan Message, 100),
 		errorChan:     make(chan error, 10),
 		stopChan:      make(chan struct{}),
-		stopped:       false,
 	}
 }
 
-// Establishe connection to Twitch IRC
 func (c *Client) Connect() error {
 	server := "irc.chat.twitch.tv"
 	port := 6667
 
-	c.username = fmt.Sprintf("justinfan%d", rand.Intn(9999-1000)+1000)
+	c.mu.Lock()
+	if c.username == "" {
+		c.username = fmt.Sprintf("justinfan%d", rand.Intn(9999-1000)+1000)
+	}
+	c.mu.Unlock()
 
-	conn, err := net.Dial("tcp", net.JoinHostPort(server, fmt.Sprintf("%d", port)))
+	d := net.Dialer{Timeout: 10 * time.Second}
+	conn, err := d.Dial("tcp", net.JoinHostPort(server, fmt.Sprintf("%d", port)))
 	if err != nil {
-		return fmt.Errorf("failed to connect: %w", err)
+		return fmt.Errorf("dial failed: %w", err)
 	}
 
+	fmt.Fprintf(conn, "CAP REQ :twitch.tv/tags twitch.tv/commands\r\n")
 	fmt.Fprintf(conn, "NICK %s\r\n", c.username)
 	fmt.Fprintf(conn, "JOIN %s\r\n", c.channel)
-	fmt.Fprintf(conn, "CAP REQ :twitch.tv/tags twitch.tv/commands\r\n")
 
 	c.mu.Lock()
+	if c.conn != nil {
+		c.conn.Close()
+	}
 	c.conn = conn
 	c.connected = true
-	c.stopped = false
 	c.mu.Unlock()
 
 	return nil
 }
 
-// Begin listening for messages in a goroutine
 func (c *Client) Start() {
 	go c.listen()
 }
 
-// Safe send functions to prevent panic on closed channels
-func (c *Client) safeSendMessage(msg Message) bool {
-	c.mu.RLock()
-	stopped := c.stopped
-	c.mu.RUnlock()
-
-	if stopped {
-		return false
-	}
-
-	select {
-	case c.messageChan <- msg:
-		return true
-	case <-c.stopChan:
-		return false
-	default:
-		return false // Channel full
-	}
-}
-
-func (c *Client) safeSendReward(reward RewardRedemption) bool {
-	c.mu.RLock()
-	stopped := c.stopped
-	c.mu.RUnlock()
-
-	if stopped {
-		return false
-	}
-
-	select {
-	case c.rewardChan <- reward:
-		return true
-	case <-c.stopChan:
-		return false
-	default:
-		return false // Channel full
-	}
-}
-
-func (c *Client) safeSendError(err error) bool {
-	c.mu.RLock()
-	stopped := c.stopped
-	c.mu.RUnlock()
-
-	if stopped {
-		return false
-	}
-
-	select {
-	case c.errorChan <- err:
-		return true
-	case <-c.stopChan:
-		return false
-	default:
-		return false // Channel full
-	}
-}
-
-// Listen for messages from the socket
 func (c *Client) listen() {
-	defer func() {
-		c.mu.Lock()
-		c.connected = false
-		if c.conn != nil {
-			c.conn.Close()
-		}
-		c.mu.Unlock()
-	}()
-
-	scanner := bufio.NewScanner(c.conn)
-
 	for {
-		select {
-		case <-c.stopChan:
+		c.mu.RLock()
+		conn := c.conn
+		stopped := c.stopped
+		c.mu.RUnlock()
+
+		if stopped || conn == nil {
 			return
-		default:
-			if !scanner.Scan() {
-				if err := scanner.Err(); err != nil {
-					c.safeSendError(fmt.Errorf("scanner error: %w", err))
-				}
+		}
 
-				if !c.stopped {
-					log.Printf("Connection lost for %s, attempting reconnection in 5 seconds...", c.channel)
-					time.Sleep(5 * time.Second)
-
-					if err := c.Connect(); err != nil {
-						log.Printf("Reconnection failed for %s: %v", c.channel, err)
-						c.safeSendError(fmt.Errorf("reconnection failed: %w", err))
-					} else {
-						log.Printf("Successfully reconnected to %s", c.channel)
-
-						reconnectMsg := Message{
-							Username:  "System",
-							Content:   "Reconnected to channel",
-							Channel:   c.channel,
-							Tags:      make(map[string]string),
-							RawData:   "",
-							Timestamp: time.Now(),
-							UserColor: "#FF6B6B",
-						}
-						c.messageBuffer.Add(reconnectMsg)
-						c.safeSendMessage(reconnectMsg)
-
-						go c.listen()
-					}
-				}
-				return
-			}
-
+		scanner := bufio.NewScanner(conn)
+		for scanner.Scan() {
 			data := scanner.Text()
 
-			if data == "PING :tmi.twitch.tv" {
-				log.Printf("GOT A PING -> SENT A PONG for channel: %s\n", c.channel)
-				fmt.Fprintln(c.conn, "PONG :tmi.twitch.tv")
+			if strings.HasPrefix(data, "PING") {
+				fmt.Fprintf(conn, "PONG :tmi.twitch.tv\r\n")
 				continue
 			}
+			var msg *Message
 
-			// TODO fix bug
-			if strings.Contains(data, "custom-reward-id=") {
-				reward := c.parseRewardRedemption(data)
-				if reward != nil {
-					c.safeSendReward(*reward)
+			// Route based on command type
+			if strings.Contains(data, " PRIVMSG ") {
+				if strings.Contains(data, "custom-reward-id=") {
+					reward := c.parseRewardRedemption(data)
+					if reward != nil {
+						select {
+						case c.rewardChan <- *reward:
+						default:
+						}
+					}
+					continue
 				}
+				msg = c.parsePrivMsg(data)
+			} else if strings.Contains(data, " CLEARCHAT ") {
+				msg = c.parseClearChat(data)
 			}
 
-			if strings.Contains(data, "PRIVMSG") {
-				msg := c.parsePrivMsg(data)
-				if msg != nil {
-					c.messageBuffer.Add(*msg)
-					c.safeSendMessage(*msg)
+			if msg != nil {
+				c.messageBuffer.Add(*msg)
+				select {
+				case c.messageChan <- *msg:
+				default:
 				}
 			}
+		}
+
+		// 	if strings.Contains(data, "PRIVMSG") {
+		// 		if strings.Contains(data, "custom-reward-id=") {
+		// 			reward := c.parseRewardRedemption(data)
+		// 			if reward != nil {
+		// 				select {
+		// 				case c.rewardChan <- *reward:
+		// 				default:
+		// 				}
+		// 			}
+		// 		} else {
+		// 			msg := c.parsePrivMsg(data)
+		// 			if msg != nil {
+		// 				c.messageBuffer.Add(*msg)
+		// 				select {
+		// 				case c.messageChan <- *msg:
+		// 				default:
+		// 				}
+		// 			}
+		// 		}
+		// 	}
+		// }
+
+		c.mu.Lock()
+		if c.stopped {
+			c.mu.Unlock()
+			return
+		}
+		c.connected = false
+		c.mu.Unlock()
+
+		log.Printf("Connection lost for %s, reconnecting...", c.channel)
+		for {
+			time.Sleep(5 * time.Second)
+			if err := c.Connect(); err == nil {
+				log.Printf("Reconnected to %s", c.channel)
+				break
+			}
+			c.mu.RLock()
+			if c.stopped {
+				c.mu.RUnlock()
+				return
+			}
+			c.mu.RUnlock()
 		}
 	}
 }
 
-// Parse the received message
-func (c *Client) parsePrivMsg(data string) *Message {
-	// Example PRIVMSG format:
-	// @badge-info=;badges=;client-nonce=...;display-name=Username;emotes=;first-msg=0;flags=;id=...;mod=0;returning-chatter=0;room-id=...;subscriber=0;tmi-sent-ts=...;turbo=0;user-id=...;user-type= :username!username@username.tmi.twitch.tv PRIVMSG #channel :Hello world!
-
-	parts := strings.Split(data, " ")
-	if len(parts) < 4 {
-		return nil
-	}
-
+func (c *Client) parseClearChat(data string) *Message {
 	msg := &Message{
 		RawData:   data,
 		Timestamp: time.Now(),
 		Tags:      make(map[string]string),
 	}
 
-	// Parse tags if they exist
-	// if strings.HasPrefix(data, "@") {
-	// 	tagEnd := strings.Index(data, " :")
-	// 	if tagEnd != -1 {
-	// 		tagStr := data[1:tagEnd]
-	// 		tags := strings.Split(tagStr, ";")
-	// 		for _, tag := range tags {
-	// 			if kv := strings.SplitN(tag, "=", 2); len(kv) == 2 {
-	// 				msg.Tags[kv[0]] = kv[1]
-	// 			}
-	// 		}
-	// 	}
-	// }
+	payload := data
 	if strings.HasPrefix(data, "@") {
-		// Find the first space after tags, not " :"
-		tagEnd := strings.Index(data[1:], " ")
-		if tagEnd != -1 {
-			tagStr := data[1 : tagEnd+1] // +1 because we started searching from index 1
-			tags := strings.Split(tagStr, ";")
-			for _, tag := range tags {
-				if kv := strings.SplitN(tag, "=", 2); len(kv) == 2 {
-					msg.Tags[kv[0]] = kv[1]
-				}
+		spaceIdx := strings.Index(data, " ")
+		if spaceIdx == -1 {
+			return nil
+		}
+		tagStr := data[1:spaceIdx]
+		for _, tag := range strings.Split(tagStr, ";") {
+			kv := strings.SplitN(tag, "=", 2)
+			if len(kv) == 2 {
+				msg.Tags[kv[0]] = kv[1]
 			}
 		}
+		payload = data[spaceIdx+1:]
 	}
 
-	privmsgIndex := strings.Index(data, " PRIVMSG ")
-	if privmsgIndex == -1 {
+	parts := strings.SplitN(payload, " CLEARCHAT ", 2)
+	if len(parts) < 2 {
 		return nil
 	}
-	channelStart := privmsgIndex + len(" PRIVMSG ")
-	channelEnd := strings.Index(data[channelStart:], " :")
-	if channelEnd == -1 {
-		return nil
-	}
-	msg.Channel = data[channelStart : channelStart+channelEnd]
 
-	messageStart := channelStart + channelEnd + 2 // +2 for " :"
-	if messageStart < len(data) {
-		msg.Content = data[messageStart:]
-	}
-
-	// Extract username from display-name tag or parse from IRC format
-	if displayName, ok := msg.Tags["display-name"]; ok && displayName != "" {
-		msg.Username = displayName
+	// Format is usually: :tmi.twitch.tv CLEARCHAT #channel :targetuser
+	// Or for a full chat clear: :tmi.twitch.tv CLEARCHAT #channel
+	remaining := parts[1]
+	var username string
+	if colonIdx := strings.Index(remaining, " :"); colonIdx != -1 {
+		msg.Channel = remaining[:colonIdx]
+		// msg.Username = remaining[colonIdx+2:]
+		username = remaining[colonIdx+2:]
+		msg.Username = "<-- SYSTEM -->"
 	} else {
-		// Parse from IRC :username!username@username.tmi.twitch.tv
-		userStart := strings.Index(data, ":")
-		if userStart != -1 {
-			userEnd := strings.Index(data[userStart:], "!")
-			if userEnd != -1 {
-				msg.Username = data[userStart+1 : userStart+userEnd]
+		msg.Channel = remaining
+	}
+
+	if duration, ok := msg.Tags["ban-duration"]; ok {
+		msg.Content = fmt.Sprintf("[TIMEOUT] %s for %ss", username, duration)
+	} else if msg.Username != "" {
+		msg.Content = fmt.Sprintf("[BAN] %s", username)
+	} else {
+		msg.Content = "[CLEARED] Chat was cleared by a moderator"
+	}
+	msg.UserColor = "#FF0000"
+
+	return msg
+}
+
+func (c *Client) parsePrivMsg(data string) *Message {
+	msg := &Message{
+		RawData:   data,
+		Timestamp: time.Now(),
+		Tags:      make(map[string]string),
+	}
+
+	payload := data
+	if strings.HasPrefix(data, "@") {
+		spaceIdx := strings.Index(data, " ")
+		if spaceIdx == -1 {
+			return nil
+		}
+		tagStr := data[1:spaceIdx]
+		for _, tag := range strings.Split(tagStr, ";") {
+			kv := strings.SplitN(tag, "=", 2)
+			if len(kv) == 2 {
+				msg.Tags[kv[0]] = kv[1]
 			}
 		}
+		payload = data[spaceIdx+1:]
 	}
 
-	// Extract user color from tags
-	if userColor, ok := msg.Tags["color"]; ok {
-		// log.Printf("Color tag for %s: '%s'\n", msg.Username, userColor)
-		if userColor != "" {
-			msg.UserColor = convertToLightIfDark(userColor)
-		} else {
-			msg.UserColor = getTwitchDefaultColor(msg.Username)
-		}
+	parts := strings.SplitN(payload, " PRIVMSG ", 2)
+	if len(parts) < 2 {
+		return nil
+	}
+
+	if disp, ok := msg.Tags["display-name"]; ok && disp != "" {
+		msg.Username = disp
 	} else {
-		log.Printf("No color tag found for %s\n", msg.Username)
-		msg.UserColor = "#FFFFFF"
+		userPart := parts[0]
+		if bangIdx := strings.Index(userPart, "!"); bangIdx != -1 {
+			msg.Username = userPart[1:bangIdx]
+		}
+	}
+
+	contentParts := strings.SplitN(parts[1], " :", 2)
+	if len(contentParts) == 2 {
+		msg.Channel = contentParts[0]
+		msg.Content = contentParts[1]
+	}
+
+	if col, ok := msg.Tags["color"]; ok && col != "" {
+		msg.UserColor = convertToLightIfDark(col)
+	} else {
+		msg.UserColor = getTwitchDefaultColor(msg.Username)
 	}
 
 	return msg
 }
 
-// Parse channel point redemption messages
 func (c *Client) parseRewardRedemption(data string) *RewardRedemption {
-	reward := &RewardRedemption{
-		RawData:   data,
-		Timestamp: time.Now(),
+	msg := c.parsePrivMsg(data)
+	if msg == nil {
+		return nil
 	}
 
-	// Parse tags to extract reward information
-	if strings.HasPrefix(data, "@") {
-		tagEnd := strings.Index(data, " :")
-		if tagEnd != -1 {
-			tagStr := data[1:tagEnd]
-			tags := strings.Split(tagStr, ";")
-			for _, tag := range tags {
-				if kv := strings.SplitN(tag, "=", 2); len(kv) == 2 {
-					switch kv[0] {
-					case "custom-reward-id":
-						reward.RewardID = kv[1]
-					case "display-name":
-						reward.Username = kv[1]
-					}
-				}
-			}
-		}
+	return &RewardRedemption{
+		RewardID:   msg.Tags["custom-reward-id"],
+		Username:   msg.Username,
+		RewardName: "Custom Reward",
+		UserInput:  msg.Content,
+		RawData:    data,
+		Timestamp:  msg.Timestamp,
 	}
-
-	// Extract the user input (message content) after " PRIVMSG #channel :"
-	privmsgIndex := strings.Index(data, " PRIVMSG ")
-	if privmsgIndex != -1 {
-		// Find the start of the message content
-		messageStart := strings.Index(data[privmsgIndex:], " :")
-		if messageStart != -1 {
-			messageStart += privmsgIndex + 2 // +2 for " :"
-			if messageStart < len(data) {
-				reward.UserInput = data[messageStart:]
-			}
-		}
-	}
-
-	return reward
 }
 
-// Returns the last N messages from the buffer
-func (c *Client) GetMessages(n int) []Message {
-	return c.messageBuffer.GetLast(n)
-}
+func (c *Client) GetMessages(n int) []Message            { return c.messageBuffer.GetLast(n) }
+func (c *Client) GetAllMessages() []Message              { return c.messageBuffer.GetAll() }
+func (c *Client) MessageChannel() <-chan Message         { return c.messageChan }
+func (c *Client) RewardChannel() <-chan RewardRedemption { return c.rewardChan }
+func (c *Client) ErrorChannel() <-chan error             { return c.errorChan }
 
-// Returns all messages in the buffer
-func (c *Client) GetAllMessages() []Message {
-	return c.messageBuffer.GetAll()
-}
-
-// Returns the channel for receiving new messages
-func (c *Client) MessageChannel() <-chan Message {
-	return c.messageChan
-}
-
-// Returns the channel for receiving reward redemptions
-func (c *Client) RewardChannel() <-chan RewardRedemption {
-	return c.rewardChan
-}
-
-// Returns the channel for receiving errors
-func (c *Client) ErrorChannel() <-chan error {
-	return c.errorChan
-}
-
-// Returns whether the client is connected
 func (c *Client) IsConnected() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.connected
 }
 
-// Stop the client
 func (c *Client) Stop() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if c.stopped {
-		return // Already stopped
+		c.mu.Unlock()
+		return
 	}
-
 	c.stopped = true
 	c.connected = false
-
-	// Close the connection first to stop the scanner
 	if c.conn != nil {
 		c.conn.Close()
-		c.conn = nil
 	}
-
-	// Close the stop channel to signal the listen goroutine
-	close(c.stopChan)
-
-	// Give the listen goroutine a moment to exit
-	time.Sleep(10 * time.Millisecond)
-
-	// Now safely close other channels
-	close(c.messageChan)
-	close(c.rewardChan)
-	close(c.errorChan)
+	c.mu.Unlock()
 }
-
-// Util
 
 func convertToLightIfDark(hexColor string) string {
 	color := strings.TrimPrefix(hexColor, "#")
 	if len(color) != 6 {
 		return hexColor
 	}
-
 	r, _ := strconv.ParseInt(color[0:2], 16, 0)
 	g, _ := strconv.ParseInt(color[2:4], 16, 0)
 	b, _ := strconv.ParseInt(color[4:6], 16, 0)
-
 	if 0.299*float64(r)+0.587*float64(g)+0.114*float64(b) < 128 {
 		r += int64(float64(255-r) * 0.4)
 		g += int64(float64(255-g) * 0.4)
 		b += int64(float64(255-b) * 0.4)
 	}
-
-	return fmt.Sprintf("#%02X%02X%02X", r, g, b)
+	return fmt.Sprintf("#%02x%02x%02x", r, g, b)
 }
 
 func getTwitchDefaultColor(username string) string {
 	colors := []string{
-		"#FF0000", "#0000FF", "#00FF00", "#B22222", "#FF7F50",
+		"#FF0000", "#0000FF", "#008000", "#B22222", "#FF7F50",
 		"#9ACD32", "#FF4500", "#2E8B57", "#DAA520", "#D2691E",
 		"#5F9EA0", "#1E90FF", "#FF69B4", "#8A2BE2", "#00FF7F",
 	}
-
+	if username == "" {
+		return colors[0]
+	}
 	hash := 0
-	for _, char := range strings.ToLower(username) {
-		hash = (hash << 5) - hash + int(char)
+	for _, char := range username {
+		hash += int(char)
 	}
-
-	return colors[abs(hash)%len(colors)]
-}
-
-func abs(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
+	return colors[hash%len(colors)]
 }
