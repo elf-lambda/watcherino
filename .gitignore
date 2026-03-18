@@ -1,3 +1,4 @@
+.gitignore
 build/bin
 node_modules
 frontend/dist
@@ -5,6 +6,8 @@ frontend/dist
 channels/
 logs/
 mp3/
+old-exe/
+audio/
 
 frontend/dist/
 frontend/node_modules/
@@ -20,3 +23,8 @@ go-wails-01.exe
 main-go-backup.txt
 main-js-backup.txt
 config.txt
+go-wails-01*.exe
+stop
+.env
+tts/
+tools/piper/en_US*
