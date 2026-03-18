@@ -307,6 +307,7 @@ func (a *App) forwardMessages(ctx context.Context, conn *ChannelConnection) {
 				"userColor":     msg.UserColor,
 				"emotes":        emoteInfo,
 				"isHighlighted": false,
+				"isUserNotice":  msg.isUserNotice,
 			}
 
 			channelToLog := strings.TrimPrefix(conn.client.channel, "#")

@@ -700,6 +700,9 @@ function addMessageToChat(message, shouldScroll = true) {
         messageEl.classList.add("message-highlighted");
         highlightChannel(message.channel);
     }
+    if (message.isUserNotice) {
+        messageEl.classList.add("message-highlighted");
+    }
 
     if (message.emotes) {
         for (const [emoteName, base64] of Object.entries(message.emotes)) {
@@ -818,5 +821,10 @@ if (chatMessages) {
         autoScrollEnabled = isAtBottom();
     });
 }
+
+window.addEventListener("DOMContentLoaded", () => {
+    // Your code here
+    audioToggleBtn.click();
+});
 
 window.removeChannel = removeChannel;

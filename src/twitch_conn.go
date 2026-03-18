@@ -14,14 +14,15 @@ import (
 
 // Message represents a parsed Twitch chat message
 type Message struct {
-	Username  string
-	Content   string
-	Channel   string
-	Tags      map[string]string
-	RawData   string
-	Timestamp time.Time
-	Height    int
-	UserColor string
+	Username     string
+	Content      string
+	Channel      string
+	Tags         map[string]string
+	RawData      string
+	Timestamp    time.Time
+	Height       int
+	UserColor    string
+	isUserNotice bool
 }
 
 func (msg *Message) GetRoomID() string {
@@ -194,6 +195,8 @@ func (c *Client) listen() {
 				msg = c.parsePrivMsg(data)
 			} else if strings.Contains(data, " CLEARCHAT ") {
 				msg = c.parseClearChat(data)
+			} else if strings.Contains(data, " USERNOTICE ") {
+				msg = c.parseUserNotice(data)
 			}
 
 			if msg != nil {
@@ -250,6 +253,67 @@ func (c *Client) listen() {
 			c.mu.RUnlock()
 		}
 	}
+}
+
+func (c *Client) parseUserNotice(data string) *Message {
+	msg := &Message{
+		RawData:   data,
+		Timestamp: time.Now(),
+		Tags:      make(map[string]string),
+	}
+
+	payload := data
+
+	if strings.HasPrefix(data, "@") {
+		spaceIdx := strings.Index(data, " ")
+		if spaceIdx == -1 {
+			return nil
+		}
+		tagStr := data[1:spaceIdx]
+		for _, tag := range strings.Split(tagStr, ";") {
+			kv := strings.SplitN(tag, "=", 2)
+			if len(kv) == 2 {
+				msg.Tags[kv[0]] = kv[1]
+			}
+		}
+		payload = data[spaceIdx+1:]
+	}
+
+	// twitch uses escape codes: \s = space, \n = newline, \r = carriage return, \: = semicolon
+	systemMsg := msg.Tags["system-msg"]
+	systemMsg = strings.ReplaceAll(systemMsg, "\\s", " ")
+	systemMsg = strings.ReplaceAll(systemMsg, "\\n", "")
+	systemMsg = strings.ReplaceAll(systemMsg, "\\r", "")
+
+	// format: :tmi.twitch.tv USERNOTICE #channel :User's custom message here
+	var userContent string
+	parts := strings.SplitN(payload, " USERNOTICE ", 2)
+	if len(parts) >= 2 {
+		remaining := parts[1]
+		if colonIdx := strings.Index(remaining, " :"); colonIdx != -1 {
+			msg.Channel = remaining[:colonIdx]
+			userContent = remaining[colonIdx+2:]
+		} else {
+			msg.Channel = remaining
+		}
+	}
+
+	if disp, ok := msg.Tags["display-name"]; ok && disp != "" {
+		msg.Username = disp
+	} else {
+		msg.Username = msg.Tags["login"]
+	}
+
+	if userContent != "" {
+		msg.Content = fmt.Sprintf("✨ %s: %s", systemMsg, userContent)
+	} else {
+		msg.Content = fmt.Sprintf("✨ %s", systemMsg)
+	}
+
+	msg.UserColor = "#FFD700"
+	msg.isUserNotice = true
+
+	return msg
 }
 
 func (c *Client) parseClearChat(data string) *Message {
