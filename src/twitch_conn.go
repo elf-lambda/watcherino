@@ -226,6 +226,7 @@ func (c *Client) listen() {
 		// 		}
 		// 	}
 		// }
+		//
 
 		c.mu.Lock()
 		if c.stopped {
