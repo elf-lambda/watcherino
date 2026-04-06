@@ -105,8 +105,8 @@ func main() {
 
 	err = wails.Run(&options.App{
 		Title:  "Twitch Chat",
-		Width:  785,
-		Height: 768,
+		Width:  565,
+		Height: 700,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

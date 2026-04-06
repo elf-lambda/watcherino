@@ -502,18 +502,18 @@ func Fetch7TVEmotes(twitchUserID, channelName string) error {
 
 		outputPath := filepath.Join(emoteDir, fmt.Sprintf("%s_%s.png", emote.Name, emote.ID))
 
-		global7TVMutex.RLock()
-		defer global7TVMutex.RUnlock()
+		// global7TVMutex.RLock()
+		// defer global7TVMutex.RUnlock()
 		// Skip if already exists
 		if _, err := os.Stat(outputPath); err == nil {
-			channelsMutex.RLock()
+			channelsMutex.Lock()
 			channels[strings.TrimPrefix(channelName, "#")].Emotes[emote.Name] = EmoteInfo{
 				ID:       emote.ID,
 				Name:     emote.Name,
 				ImageURL: imageURL,
 				FilePath: outputPath,
 			}
-			channelsMutex.RUnlock()
+			channelsMutex.Unlock()
 			continue
 		}
 

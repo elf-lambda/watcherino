@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,13 @@ type ChannelConnection struct {
 	viewerCount int
 	isConnected bool
 	mu          sync.RWMutex
+}
+
+// EmoteSearchResult is returned to the frontend for autocomplete.
+type EmoteSearchResult struct {
+	Name     string `json:"name"`
+	FilePath string `json:"filePath"`
+	Source   string `json:"source"`
 }
 
 // App represents the app state with all channels and connections
@@ -961,4 +969,213 @@ func (a *App) GetBufferSize() int {
 
 func (a *App) GetTwitchConfig() TwitchConfig {
 	return GetTwitchConfigFromFile("config.txt")
+}
+
+// SearchEmotes returns up to <limit> emotes whose names start with <query>
+// (case-insensitive) for the given channel.
+//
+// Priority: channel 7TV -> channel BTTV -> channel FFZ
+//
+//	global 7TV -> global BTTV -> global FFZ
+//	disk fallback (scans emotes_7tv / emotes_bttv / emotes_ffz dirs)
+func (a *App) SearchEmotes(channelName, query string, limit int) []EmoteSearchResult {
+	channelName = strings.TrimPrefix(channelName, "#")
+	query = strings.ToLower(query)
+	if limit <= 0 {
+		limit = 15
+	}
+
+	seen := make(map[string]bool)
+	var results []EmoteSearchResult
+
+	matches := func(name string) bool {
+		if query == "" {
+			return true
+		}
+		return strings.Contains(strings.ToLower(name), query)
+	}
+
+	// Returns false when the limit is reached (caller should stop iterating).
+	add := func(name, filePath, source string) bool {
+		if len(results) >= limit {
+			return false
+		}
+		if seen[name] || !matches(name) {
+			return true // skip but keep going
+		}
+		seen[name] = true
+		results = append(results, EmoteSearchResult{Name: name, FilePath: filePath, Source: source})
+		return true
+	}
+
+	sortedKeys := func(m map[string]EmoteInfo) []string {
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		return keys
+	}
+
+	// Check existing maps
+
+	channelsMutex.RLock()
+	if ch, ok := channels[channelName]; ok {
+		for _, n := range sortedKeys(ch.Emotes) {
+			if !add(n, ch.Emotes[n].FilePath, "7tv") {
+				break
+			}
+		}
+	}
+	channelsMutex.RUnlock()
+
+	if len(results) < limit {
+		channelsBTTVMutex.RLock()
+		if m, ok := channelsBTTV[channelName]; ok {
+			for _, n := range sortedKeys(m) {
+				if !add(n, m[n].FilePath, "bttv") {
+					break
+				}
+			}
+		}
+		channelsBTTVMutex.RUnlock()
+	}
+
+	if len(results) < limit {
+		channelsFFZMutex.RLock()
+		if m, ok := channelsFFZ[channelName]; ok {
+			for _, n := range sortedKeys(m) {
+				if !add(n, m[n].FilePath, "ffz") {
+					break
+				}
+			}
+		}
+		channelsFFZMutex.RUnlock()
+	}
+
+	if len(results) < limit {
+		global7TVMutex.RLock()
+		for _, n := range sortedKeys(global7TVEmotes) {
+			if !add(n, global7TVEmotes[n].FilePath, "7tv-global") {
+				break
+			}
+		}
+		global7TVMutex.RUnlock()
+	}
+
+	if len(results) < limit {
+		globalBTTVMutex.RLock()
+		for _, n := range sortedKeys(globalBTTVEmotes) {
+			if !add(n, globalBTTVEmotes[n].FilePath, "bttv-global") {
+				break
+			}
+		}
+		globalBTTVMutex.RUnlock()
+	}
+
+	if len(results) < limit {
+		globalFFZMutex.RLock()
+		for _, n := range sortedKeys(globalFFZEmotes) {
+			if !add(n, globalFFZEmotes[n].FilePath, "ffz-global") {
+				break
+			}
+		}
+		globalFFZMutex.RUnlock()
+	}
+
+	if len(results) >= limit {
+		return results
+	}
+
+	// Disk fallback
+	// Scans the on-disk emote directories so we find emotes that are cached
+	// from a previous run but haven't been loaded into memory yet.
+
+	type dirSource struct {
+		dir    string
+		source string
+	}
+	dirs := []dirSource{
+		{filepath.Join("channels", channelName, "emotes_7tv"), "7tv"},
+		{filepath.Join("channels", channelName, "emotes_bttv"), "bttv"},
+		{filepath.Join("channels", channelName, "emotes_ffz"), "ffz"},
+		{filepath.Join("channels", channelName, "emotes"), "twitch"},
+		{filepath.Join("channels", "global", "emotes_7tv"), "7tv-global"},
+		{filepath.Join("channels", "global", "emotes_bttv"), "bttv-global"},
+		{filepath.Join("channels", "global", "emotes_ffz"), "ffz-global"},
+	}
+
+	for _, ds := range dirs {
+		if len(results) >= limit {
+			break
+		}
+		entries, err := os.ReadDir(ds.dir)
+		if err != nil {
+			continue
+		}
+
+		type candidate struct {
+			name string
+			path string
+		}
+		var cands []candidate
+
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".png") {
+				continue
+			}
+			// Filename format: "EmoteName_ID.png" — strip "_ID" suffix.
+			base := strings.TrimSuffix(entry.Name(), ".png")
+			lastUnder := strings.LastIndex(base, "_")
+			var emoteName string
+			if lastUnder > 0 {
+				emoteName = base[:lastUnder]
+			} else {
+				emoteName = base
+			}
+			// TODO: Rework how and where we save sub only emotes
+			// Also currently there's no way to find what sub-only emotes you have
+			// FeelsOkayMan
+			// This filters out subonly emotes from the emote autocomplete, even if
+			// you have them
+			if strings.Contains(emoteName, "emotesv2") {
+				continue
+			}
+			if seen[emoteName] || !matches(emoteName) {
+				continue
+			}
+			cands = append(cands, candidate{
+				name: emoteName,
+				path: filepath.Join(ds.dir, entry.Name()),
+			})
+		}
+
+		sort.Slice(cands, func(i, j int) bool { return cands[i].name < cands[j].name })
+
+		for _, c := range cands {
+			if !add(c.name, c.path, ds.source) {
+				break
+			}
+		}
+	}
+
+	// prefix matches first, then contains
+	sort.SliceStable(results, func(i, j int) bool {
+		iPrefix := strings.HasPrefix(strings.ToLower(results[i].Name), query)
+		jPrefix := strings.HasPrefix(strings.ToLower(results[j].Name), query)
+		if iPrefix != jPrefix {
+			return iPrefix
+		}
+		return results[i].Name < results[j].Name
+	})
+
+	return results
+}
+
+func (a *App) GetEmoteBase64ByPath(filePath string) (string, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("reading emote %q: %w", filePath, err)
+	}
+	return fmt.Sprintf("data:image/png;base64,%s", base64.StdEncoding.EncodeToString(data)), nil
 }

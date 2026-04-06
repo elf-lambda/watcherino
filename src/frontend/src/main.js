@@ -823,8 +823,191 @@ if (chatMessages) {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-    // Your code here
     audioToggleBtn.click();
+    // vibecoded slop, dont care
+    (function () {
+    const popup = document.createElement("div");
+    popup.id = "emote-autocomplete";
+
+    function attachPopup() {
+        const input = document.getElementById("custom-channel");
+        if (!input) return;
+        const wrapper = input.closest(".chat-input-container") || input.parentElement;
+        if (getComputedStyle(wrapper).position === "static") {
+            wrapper.style.position = "relative";
+        }
+        wrapper.appendChild(popup);
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", attachPopup);
+    } else {
+        attachPopup();
+    }
+
+    let activeIndex = -1;
+    let currentItems = [];
+    let debounceTimer = null;
+    let colonStart = -1;
+
+    function getInput() { return document.getElementById("custom-channel"); }
+
+    function hide() {
+        popup.style.display = "none";
+        popup.innerHTML = "";
+        activeIndex = -1;
+        currentItems = [];
+        colonStart = -1;
+    }
+
+    function setActive(idx) {
+        popup.querySelectorAll(".emote-item").forEach((el, i) => el.classList.toggle("active", i === idx));
+        const items = popup.querySelectorAll(".emote-item");
+        if (items[idx]) items[idx].scrollIntoView({ block: "nearest" });
+        activeIndex = idx;
+    }
+
+    function insertEmote(name) {
+        const input = getInput();
+        if (!input) return;
+        const before = input.value.slice(0, colonStart);
+        const after = input.value.slice(input.selectionStart);
+        input.value = before + name + " " + after;
+        const pos = (before + name + " ").length;
+        input.setSelectionRange(pos, pos);
+        hide();
+        input.focus();
+    }
+
+    function sourceLabel(src) {
+        if (src.startsWith("7tv"))  return src.includes("global") ? "7TV·G"  : "7TV";
+        if (src.startsWith("bttv")) return src.includes("global") ? "BTTV·G" : "BTTV";
+        if (src.startsWith("ffz"))  return src.includes("global") ? "FFZ·G"  : "FFZ";
+        if (src === "twitch")       return "TTW";
+        return src.toUpperCase().slice(0, 5);
+    }
+
+    function renderItems(items) {
+        popup.innerHTML = "";
+        if (!items || !items.length) { hide(); return; }
+
+        currentItems = items;
+        activeIndex = 0;
+
+        const header = document.createElement("div");
+        header.className = "emote-autocomplete-header";
+        header.textContent = "> " + items.length + " emote" + (items.length !== 1 ? "s" : "") +
+            "  [\u2191\u2193 navigate \xb7 Tab/Enter insert \xb7 Esc close]";
+        popup.appendChild(header);
+
+        items.forEach(function (item, idx) {
+            const row = document.createElement("div");
+            row.className = "emote-item";
+
+            const img = document.createElement("img");
+            img.alt = item.name;
+            img.src = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+
+            const nameEl = document.createElement("span");
+            nameEl.className = "emote-item-name";
+            nameEl.textContent = item.name;
+
+            const srcEl = document.createElement("span");
+            srcEl.className = "emote-item-source";
+            srcEl.textContent = sourceLabel(item.source);
+
+            row.appendChild(img);
+            row.appendChild(nameEl);
+            row.appendChild(srcEl);
+
+            row.addEventListener("mouseenter", function () { setActive(idx); });
+            row.addEventListener("click", function () { insertEmote(item.name); });
+            popup.appendChild(row);
+
+            if (item.filePath) {
+                go.main.App.GetEmoteBase64ByPath(item.filePath)
+                    .then(function (b64) { if (b64) img.src = b64; })
+                    .catch(function () {});
+            }
+        });
+
+        setActive(0);
+        popup.style.display = "block";
+    }
+
+    async function fetchEmotes(query) {
+        const channel = (typeof currentChannel !== "undefined" ? currentChannel : "") || "";
+        try {
+            const results = await go.main.App.SearchEmotes(channel, query, 25);
+            renderItems(results || []);
+        } catch (e) {
+            console.warn("SearchEmotes error:", e);
+            hide();
+        }
+    }
+
+    function onInput(e) {
+        const input = e.target;
+        const val = input.value;
+        const caret = input.selectionStart;
+
+        let ci = -1;
+        for (let i = caret - 1; i >= 0; i--) {
+            if (val[i] === ":") { ci = i; break; }
+            if (val[i] === " ") break;
+        }
+
+        if (ci === -1) { hide(); return; }
+        if (ci > 0 && val[ci - 1] !== " ") { hide(); return; }
+
+        colonStart = ci;
+        const query = val.slice(ci + 1, caret);
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(function () { fetchEmotes(query); }, 80);
+    }
+
+    function onKeyDown(e) {
+        if (popup.style.display === "none") return;
+        switch (e.key) {
+            case "ArrowDown":
+                e.preventDefault();
+                setActive((activeIndex + 1) % currentItems.length);
+                break;
+            case "ArrowUp":
+                e.preventDefault();
+                setActive((activeIndex - 1 + currentItems.length) % currentItems.length);
+                break;
+            case "Tab":
+            case "Enter":
+                if (currentItems.length && activeIndex >= 0) {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    insertEmote(currentItems[activeIndex].name);
+                }
+                break;
+            case "Escape":
+                e.preventDefault();
+                hide();
+                break;
+        }
+    }
+
+    function wireListeners() {
+        const input = document.getElementById("custom-channel");
+        if (!input) return;
+        input.addEventListener("input", onInput);
+        input.addEventListener("keydown", onKeyDown, true);
+        input.addEventListener("blur", function () {
+            setTimeout(function () { if (!popup.matches(":hover")) hide(); }, 150);
+        });
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", wireListeners);
+    } else {
+        wireListeners();
+    }
+})();
 });
 
 window.removeChannel = removeChannel;

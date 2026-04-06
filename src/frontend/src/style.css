@@ -622,3 +622,81 @@ body {
 .audio-btn.locked {
     color: #00ff00;
 }
+
+#emote-autocomplete {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    z-index: 9999;
+    max-height: 240px;
+    overflow-y: auto;
+    font-family: 'Consolas', 'Monaco', 'Lucida Console', monospace;
+    font-size: 12px;
+}
+
+#emote-autocomplete::-webkit-scrollbar {
+    width: 6px;
+}
+
+#emote-autocomplete::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+#emote-autocomplete::-webkit-scrollbar-thumb {
+    background: #dad9d9;
+    border-radius: 3px;
+}
+
+.emote-autocomplete-header {
+    padding: 3px 8px;
+    font-size: 10px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    user-select: none;
+}
+
+.emote-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.emote-item:last-child {
+    border-bottom: none;
+}
+
+.emote-item:hover,
+.emote-item.active {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.emote-item img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    flex-shrink: 0;
+    image-rendering: pixelated;
+}
+
+.emote-item-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.emote-item-source {
+    color: var(--text-muted);
+    font-size: 10px;
+    flex-shrink: 0;
+}
